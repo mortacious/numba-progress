@@ -4,13 +4,14 @@ import sys
 from tqdm import tqdm
 from threading import Thread, Event
 
-from numba.core import types
 from numba.experimental import structref
-from numba.extending import overload_method
+from numba.extending import overload_method, typeof_impl, as_numba_type, models, register_model, make_attribute_wrapper, overload_attribute, unbox, NativeValue
 from .numba_atomic import atomic_add
-
-
+from numba import types
+from numba.core import cgutils
+from numba.core.boxing import unbox_array
 __all__ = ['ProgressBar']
+
 
 
 @structref.register
@@ -125,3 +126,57 @@ class ProgressBar(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+class ProgressBarType(types.Type):
+    def __init__(self):
+        super().__init__(name='ProgressBar')
+
+
+progressbar_type = ProgressBarType()
+
+
+@typeof_impl.register(ProgressBar)
+def typeof_index(val, c):
+    return progressbar_type
+
+
+as_numba_type.register(ProgressBar, progressbar_type)
+
+
+@register_model(ProgressBarType)
+class ProgressBarModel(models.StructModel):
+    def __init__(self, dmm, fe_type):
+        members = [
+            ('hook', types.Array(types.uint64, 1, 'C')),
+        ]
+        models.StructModel.__init__(self, dmm, fe_type, members)
+
+
+@overload_attribute(ProgressBarType, 'value')
+def get_value(progress_bar):
+    def getter(progress_bar):
+        return progress_bar.hook[0]
+    return getter
+
+
+@unbox(ProgressBarType)
+def unbox_progressbar(typ, obj, c):
+    """
+    Convert a ProgressBar to it's native representation (proxy object)
+    """
+    hook_obj = c.pyapi.object_getattr_string(obj, 'hook')
+    progress_bar = cgutils.create_struct_proxy(typ)(c.context, c.builder)
+    progress_bar.hook = unbox_array(types.Array(types.uint64, 1, 'C'), hook_obj, c).value
+    c.pyapi.decref(hook_obj)
+    is_error = cgutils.is_not_null(c.builder, c.pyapi.err_occurred())
+    return NativeValue(progress_bar._getvalue(), is_error=is_error)
+
+
+@overload_method(ProgressBarType, "update", jit_options={"nogil": True})
+def _ol_update(self, n=1):
+    def _update_impl(self, n=1):
+        atomic_add(self.hook, 0, n)
+    return _update_impl
+
+
