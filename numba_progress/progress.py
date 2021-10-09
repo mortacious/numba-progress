@@ -19,6 +19,10 @@ class ProgressBar(object):
     Wraps the tqdm progress bar enabling it to be updated from within a numba nopython function.
     It works by spawning a separate thread that updates the tqdm progress bar based on an atomic counter which can be
     accessed within the numba function. The progress bar works with parallel as well as sequential numba functions.
+    
+    Note: As this Class contains python objects not useable or convertable into numba, it will be boxed as a
+    proxy object, that only exposes the minimum subset of functionality to update the progress bar. Attempts
+    to return or create a ProgressBar within a numba function will result in an error.
 
     Parameters
     ----------
