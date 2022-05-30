@@ -1,7 +1,7 @@
 import numba as nb
 import numpy as np
 import sys
-from tqdm import tqdm
+from tqdm import tqdm, tqdm_notebook
 from threading import Thread, Event
 
 from numba.extending import overload_method, typeof_impl, as_numba_type, models, register_model, \
@@ -12,6 +12,20 @@ from numba.core import cgutils
 from numba.core.boxing import unbox_array
 
 __all__ = ['ProgressBar']
+
+def is_notebook():
+    """Determine if we're running within an IPython kernel
+
+    >>> is_notebook()
+    False
+    """
+    # http://stackoverflow.com/questions/34091701/determine-if-were-in-an-ipython-notebook-session
+    if "IPython" not in sys.modules:  # IPython hasn't been imported
+        return False
+    from IPython import get_ipython
+
+    # check for `kernel` attribute on the IPython instance
+    return getattr(get_ipython(), "kernel", None) is not None
 
 
 class ProgressBar(object):
@@ -32,17 +46,28 @@ class ProgressBar(object):
         methods.  For encoding, see `write_bytes`.
     update_interval: float, optional
         The interval in seconds used by the internal thread to check for updates [default: 0.1].
+    notebook: bool, optional
+        If set, forces or forbits the use of the notebook progress bar. By default the best progress bar will be
+        determined automatically.
     kwargs: dict-like, optional
         Addtional parameters passed to the tqdm class. See https://github.com/tqdm/tqdm for a documentation of
         the available parameters. Noteable exceptions are the parameters:
             - file is redefined above (see above)
             - iterable is not available because it would not make sense here
     """
-    def __init__(self, file=None, update_interval=0.1, **kwargs):
+    def __init__(self, file=None, update_interval=0.1, notebook=None, dynamic_ncols=True, **kwargs):
         if file is None:
             file = sys.stdout
         self._last_value = 0
-        self._tqdm = tqdm(iterable=None, file=file, **kwargs)
+
+        if notebook is None:
+            notebook = is_notebook()
+
+        if notebook:
+            self._tqdm = tqdm_notebook(iterable=None, file=file, **kwargs)
+        else:
+            self._tqdm = tqdm(iterable=None, file=file, **kwargs)
+
         self.hook = np.zeros(1, dtype=np.uint64)
         self._updater_thread = None
         self._exit_event = Event()
