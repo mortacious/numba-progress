@@ -49,11 +49,15 @@ class ProgressBar(object):
     notebook: bool, optional
         If set, forces or forbits the use of the notebook progress bar. By default the best progress bar will be
         determined automatically.
+    dynamic_ncols: bool, optional
+        If true, the number of columns (the width of the progress bar) is constantly adjusted. This improves the
+        output of the notebook progress bar a lot.
     kwargs: dict-like, optional
         Addtional parameters passed to the tqdm class. See https://github.com/tqdm/tqdm for a documentation of
         the available parameters. Noteable exceptions are the parameters:
             - file is redefined above (see above)
             - iterable is not available because it would not make sense here
+            - dynamic_ncols is defined above
     """
     def __init__(self, file=None, update_interval=0.1, notebook=None, dynamic_ncols=True, **kwargs):
         if file is None:
@@ -64,9 +68,9 @@ class ProgressBar(object):
             notebook = is_notebook()
 
         if notebook:
-            self._tqdm = tqdm_notebook(iterable=None, file=file, **kwargs)
+            self._tqdm = tqdm_notebook(iterable=None, dynamic_ncols=dynamic_ncols, file=file, **kwargs)
         else:
-            self._tqdm = tqdm(iterable=None, file=file, **kwargs)
+            self._tqdm = tqdm(iterable=None, dynamic_ncols=dynamic_ncols, file=file, **kwargs)
 
         self.hook = np.zeros(1, dtype=np.uint64)
         self._updater_thread = None
