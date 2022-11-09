@@ -1,7 +1,9 @@
 import numba as nb
 import numpy as np
 import sys
-from tqdm import tqdm, tqdm_notebook
+from tqdm import tqdm
+from tqdm.notebook import tqdm as tqdm_notebook
+
 from threading import Thread, Event
 
 from numba.extending import overload_method, typeof_impl, as_numba_type, models, register_model, \
