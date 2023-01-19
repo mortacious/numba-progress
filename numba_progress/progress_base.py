@@ -1,17 +1,10 @@
-import numba as nb
-import numpy as np
 import sys
 from tqdm import tqdm, tqdm_notebook
 from threading import Thread, Event
+from abc import ABC, abstractmethod
 
-from numba.extending import overload_method, typeof_impl, as_numba_type, models, register_model, \
-    make_attribute_wrapper, overload_attribute, unbox, NativeValue, box
-from .numba_atomic import atomic_add
-from numba import types
-from numba.core import cgutils
-from numba.core.boxing import unbox_array
+__all__ = ['ProgressBarBase']
 
-__all__ = ['ProgressBar']
 
 def is_notebook():
     """Determine if we're running within an IPython kernel
@@ -28,7 +21,7 @@ def is_notebook():
     return getattr(get_ipython(), "kernel", None) is not None
 
 
-class ProgressBar(object):
+class ProgressBarBase(ABC):
     """
     Wraps the tqdm progress bar enabling it to be updated from within a numba nopython function.
     It works by spawning a separate thread that updates the tqdm progress bar based on an atomic counter which can be
@@ -72,11 +65,34 @@ class ProgressBar(object):
         else:
             self._tqdm = tqdm(iterable=None, dynamic_ncols=dynamic_ncols, file=file, **kwargs)
 
-        self.hook = np.zeros(1, dtype=np.uint64)
+        self._init_counter()
         self._updater_thread = None
         self._exit_event = Event()
         self.update_interval = update_interval
         self._start()
+
+    @abstractmethod
+    def _init_counter(self):
+        """
+
+        :return:
+        """
+
+    @property
+    @abstractmethod
+    def counter(self):
+        """
+
+        :return:
+        """
+
+    @abstractmethod
+    def _update_counter(self, n):
+        """
+
+        :param n:
+        :return:
+        """
 
     def _start(self):
         self._timer = Thread(target=self._update_function)
@@ -90,15 +106,15 @@ class ProgressBar(object):
         self._tqdm.close()
 
     @property
-    def value(self):
-        return self.hook[0]
+    def count(self):
+        return self.counter[0]
 
     def update(self, n=1):
-        atomic_add(self.hook, 0, n)
+        self._update_counter(n)
         self._update_tqdm()
 
     def _update_tqdm(self):
-        value = self.value
+        value = self.count
         diff = value - self._last_value
         self._last_value = value
         self._tqdm.update(diff)
@@ -115,73 +131,3 @@ class ProgressBar(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-
-
-# Numba Native Implementation for the ProgressBar Class
-
-class ProgressBarType(types.Type):
-    def __init__(self):
-        super().__init__(name='ProgressBar')
-
-
-progressbar_type = ProgressBarType()
-
-
-@typeof_impl.register(ProgressBar)
-def typeof_index(val, c):
-    return progressbar_type
-
-
-as_numba_type.register(ProgressBar, progressbar_type)
-
-
-@register_model(ProgressBarType)
-class ProgressBarModel(models.StructModel):
-    def __init__(self, dmm, fe_type):
-        members = [
-            ('hook', types.Array(types.uint64, 1, 'C')),
-        ]
-        models.StructModel.__init__(self, dmm, fe_type, members)
-
-
-# make the hook attribute accessible
-make_attribute_wrapper(ProgressBarType, 'hook', 'hook')
-
-
-@overload_attribute(ProgressBarType, 'value')
-def get_value(progress_bar):
-    def getter(progress_bar):
-        return progress_bar.hook[0]
-    return getter
-
-
-@unbox(ProgressBarType)
-def unbox_progressbar(typ, obj, c):
-    """
-    Convert a ProgressBar to it's native representation (proxy object)
-    """
-    hook_obj = c.pyapi.object_getattr_string(obj, 'hook')
-    progress_bar = cgutils.create_struct_proxy(typ)(c.context, c.builder)
-    progress_bar.hook = unbox_array(types.Array(types.uint64, 1, 'C'), hook_obj, c).value
-    c.pyapi.decref(hook_obj)
-    is_error = cgutils.is_not_null(c.builder, c.pyapi.err_occurred())
-    return NativeValue(progress_bar._getvalue(), is_error=is_error)
-
-
-@box(ProgressBarType)
-def box_progressbar(typ, val, c):
-    raise TypeError("Native representation of ProgressBar cannot be converted back to a python object "
-                    "as it contains internal python state.")
-
-
-@overload_method(ProgressBarType, "update", jit_options={"nogil": True})
-def _ol_update(self, n=1):
-    """
-    Numpy implementation of the update method.
-    """
-    if isinstance(self, ProgressBarType):
-        def _update_impl(self, n=1):
-            atomic_add(self.hook, 0, n)
-        return _update_impl
-
-

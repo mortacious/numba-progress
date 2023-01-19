@@ -1,6 +1,6 @@
 from sleep import usleep
 import numba as nb
-from numba_progress import ProgressBar
+from numba_progress import ProgressBarNumba
 
 
 @nb.njit(nogil=True)
@@ -13,5 +13,5 @@ def numba_sleeper(num_iterations, sleep_us, progress_hook):
 if __name__ == "__main__":
     num_iterations = 30
     sleep_time_us = 250_000
-    with ProgressBar(total=num_iterations, ncols=80) as numba_progress:
+    with ProgressBarNumba(total=num_iterations, ncols=80) as numba_progress:
         numba_sleeper(num_iterations, sleep_time_us, numba_progress)
