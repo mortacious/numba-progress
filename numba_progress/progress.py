@@ -3,6 +3,7 @@ import sys
 from tqdm import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 from threading import Thread, Event
+from .atomic import atomic_add
 
 __all__ = ['ProgressBar']
 
