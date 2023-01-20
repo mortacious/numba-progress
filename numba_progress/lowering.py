@@ -1,4 +1,4 @@
-from numba.extending import overload_method, typeof_impl, as_numba_type, models, register_model, \
+from numba.extending import overload_method, models, register_model, \
     make_attribute_wrapper, overload_attribute, unbox, NativeValue, box
 from numba import types
 from numba.core import cgutils
