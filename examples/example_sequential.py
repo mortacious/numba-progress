@@ -1,9 +1,10 @@
 from sleep import usleep
 import numba as nb
 from numba_progress import ProgressBar
+from numba_progress.types import progressbar
 
 
-@nb.njit(nogil=True)
+@nb.njit((nb.int64, nb.int64, progressbar), nogil=True)
 def numba_sleeper(num_iterations, sleep_us, progress_hook):
     for i in range(num_iterations):
         usleep(sleep_us)
