@@ -1,8 +1,15 @@
 import numba as nb
+from numba.extending import overload
+
+__all__ = ['usleep', 'clock']
 
 
-@nb.generated_jit(nogil=True, nopython=True)
-def usleep(usec):
+def _usleep(usec):
+    raise NotImplementedError
+
+
+@overload(_usleep, nogil=True, nopython=True, inline='always')
+def _usleep_impl(usec):
     # c usleep function in numba
     import ctypes
     libc = ctypes.CDLL('libc.so.6')
@@ -14,8 +21,18 @@ def usleep(usec):
 
     return usleep_impl
 
-@nb.generated_jit(nogil=True, nopython=True)
-def clock():
+
+@nb.njit(nogil=True)
+def usleep(usec):
+    _usleep(usec)
+
+
+def _clock():
+    raise NotImplementedError
+
+
+@overload(_clock, nogil=True, nopython=True, inline='always')
+def _clock_impl():
     import ctypes
     libc = ctypes.CDLL('libc.so.6')
     libc.clock.argtypes = ()
@@ -27,3 +44,8 @@ def clock():
         return func_clock() / CLOCKS_PER_SEC
 
     return clock_impl
+
+
+@nb.njit(nogil=True)
+def clock():
+    _clock()
