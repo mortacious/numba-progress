@@ -7,8 +7,8 @@ from tqdm.notebook import tqdm as tqdm_notebook
 from threading import Thread, Event
 
 from numba.extending import overload_method, typeof_impl, as_numba_type, models, register_model, \
-    make_attribute_wrapper, overload_attribute, unbox, NativeValue, box
-from .numba_atomic import atomic_add
+    make_attribute_wrapper, overload_attribute, unbox, NativeValue, box, lower_getattr, lower_setattr
+from .numba_atomic import atomic_add, atomic_xchg
 from numba import types
 from numba.core import cgutils
 from numba.core.boxing import unbox_array
@@ -92,18 +92,24 @@ class ProgressBar(object):
         self._tqdm.close()
 
     @property
-    def value(self):
+    def n(self):
         return self.hook[0]
+    
+    def set(self, n=0):
+        atomic_xchg(self.hook, 0, n)
+        self._update_tqdm()
 
     def update(self, n=1):
         atomic_add(self.hook, 0, n)
         self._update_tqdm()
 
     def _update_tqdm(self):
-        value = self.value
-        diff = value - self._last_value
-        self._last_value = value
-        self._tqdm.update(diff)
+        value = self.hook[0]
+        #diff = value - self._last_value
+        #self._last_value = value
+        self._tqdm.n = value
+        self._tqdm.refresh()
+        #self._tqdm.update(diff)
 
     def _update_function(self):
         """Background thread for updating the progress bar.
@@ -151,11 +157,12 @@ class ProgressBarModel(models.StructModel):
 make_attribute_wrapper(ProgressBarTypeImpl, 'hook', 'hook')
 
 
-@overload_attribute(ProgressBarTypeImpl, 'value')
+
+@overload_attribute(ProgressBarTypeImpl, 'n')
 def get_value(progress_bar):
-    def getter(progress_bar):
-        return progress_bar.hook[0]
-    return getter
+   def getter(progress_bar):
+       return progress_bar.hook[0]
+   return getter
 
 
 @unbox(ProgressBarTypeImpl)
@@ -186,5 +193,15 @@ def _ol_update(self, n=1):
         def _update_impl(self, n=1):
             atomic_add(self.hook, 0, n)
         return _update_impl
+    
+@overload_method(ProgressBarTypeImpl, "set", jit_options={"nogil": True})
+def _ol_set(self, n=0):
+    """
+    Numpy implementation of the update method.
+    """
+    if isinstance(self, ProgressBarTypeImpl):
+        def _set_impl(self, n=0):
+            atomic_xchg(self.hook, 0, n)
+        return _set_impl
 
 
