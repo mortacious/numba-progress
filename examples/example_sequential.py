@@ -4,10 +4,11 @@ from numba_progress import ProgressBar
 
 
 @nb.njit(nogil=True)
-def numba_sleeper(num_iterations, sleep_us, progress_hook):
+def numba_sleeper(num_iterations, sleep_us, progress_hook=None):
     for i in range(num_iterations):
         usleep(sleep_us)
-        progress_hook.update(1)
+        if progress_hook is not None:
+            progress_hook.update(1)
 
 
 if __name__ == "__main__":

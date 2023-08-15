@@ -21,7 +21,7 @@ from numba.core.typing.arraydecl import get_array_index_type
 from numba.extending import lower_builtin, type_callable
 from numba.np.arrayobj import basic_indexing, make_array, normalize_indices
 
-__all__ = ["atomic_add", "atomic_sub", "atomic_max", "atomic_min"]
+__all__ = ["atomic_add", "atomic_sub", "atomic_max", "atomic_min", "atomic_xchg"]
 
 
 def atomic_rmw(context, builder, op, arrayty, val, ptr):
@@ -147,4 +147,10 @@ def atomic_min(ary, i, v):
     """
     orig = ary[i]
     ary[i] = min(ary[i], v)
+    return orig
+
+@declare_atomic_array_op("xchg", "xchg", "xchg")
+def atomic_xchg(ary, i, v):
+    orig = ary[i]
+    ary[i] = v
     return orig
