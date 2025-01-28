@@ -13,7 +13,6 @@ from numba import types
 from numba.core import cgutils
 from numba.core.boxing import unbox_array
 
-__all__ = ['ProgressBar', 'ProgressBarType']
 
 def is_notebook():
     """Determine if we're running within an IPython kernel
