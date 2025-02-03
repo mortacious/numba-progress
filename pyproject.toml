@@ -1,3 +1,48 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools", "setuptools_scm>=6.2"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "numba-progress"
+authors = [
+    {name = "Felix Igelbrink", email = "felix.igelbrink@dfki.de"},
+]
+description = 'A tqdm-compatible progress bar implementation for numba functions'
+readme = "README.md"
+requires-python = ">= 3.9"
+keywords = []
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development",
+]
+dependencies = [
+    'numba>=0.52',
+    'numpy',
+    'tqdm'
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/mortacious/numba-progress"
+Issues = "https://github.com/mortacious/numba-progress/issues"
+
+[tool.setuptools]
+license-files = ["../LICENSE"]
+
+[tool.setuptools_scm]
+write_to = "numba_progress/_version.py"
+version_scheme = "release-branch-semver"
+
+[tool.setuptools.packages.find]
+include = [
+    'numba_progress'
+]

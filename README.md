@@ -5,7 +5,7 @@ The module provides the class `ProgressBar` that works as a wrapper around the
 `tqdm.tqdm` progress bar. 
 
 It works by spawning a separate thread that updates the `tqdm` progress bar 
-based on an atomic counter which can be accessed within a numba nopython function.
+based on an atomic counter which can be accessed and updated in a numba nopython function.
 
 The progress bar works with parallel as well as sequential numba functions.
 
@@ -41,7 +41,7 @@ with ProgressBar(total=num_iterations) as progress:
     numba_function(num_iterations, progress)
 ```
 
-The `ProgressBar` also works within parallel functions out of the box.
+The `ProgressBar` also works within parallel functions out of the box:
 
 ```python
 from numba import njit, prange
@@ -59,4 +59,4 @@ with ProgressBar(total=num_iterations) as progress:
     numba_function(num_iterations, progress)
 ```
 
-See also the `examples` folder for more usage examples.
+Refer to the `examples` folder for more usage examples.
