@@ -41,7 +41,7 @@ license-files = ["../LICENSE"]
 [tool.setuptools_scm]
 write_to = "numba_progress/_version.py"
 version_scheme = "only-version"
-
+local_scheme = "no-local-version"
 
 [tool.setuptools.packages.find]
 include = [
