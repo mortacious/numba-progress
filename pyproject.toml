@@ -31,6 +31,14 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
 [project.urls]
 Homepage = "https://github.com/mortacious/numba-progress"
 Issues = "https://github.com/mortacious/numba-progress/issues"
