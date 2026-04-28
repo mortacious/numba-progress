@@ -61,7 +61,7 @@ jobs:
           classifiers = data['info']['classifiers']
           versions = sorted(set(
               c.split(' :: ')[-1] for c in classifiers
-              if c.startswith('Programming Language :: Python :: 3.') and c.count('.') == 2
+              if c.startswith('Programming Language :: Python :: 3.') and c.count('.') == 1
           ), key=lambda v: tuple(int(x) for x in v.split('.')))
 
           min_ver = versions[0]
