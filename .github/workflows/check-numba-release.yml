@@ -1,0 +1,293 @@
+name: Check numba release
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check-version.outputs.proceed }}
+      numba_version: ${{ steps.numba-info.outputs.version }}
+      classifiers_json: ${{ steps.numba-classifiers.outputs.classifiers_json }}
+      requires_python_min: ${{ steps.numba-classifiers.outputs.min }}
+      matrix_json: ${{ steps.numba-classifiers.outputs.matrix_json }}
+      publish: ${{ steps.compare-classifiers.outputs.publish }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch latest numba info from PyPI
+        id: numba-info
+        run: |
+          RESPONSE=$(curl -s --fail https://pypi.org/pypi/numba/json) || {
+            echo "version=unknown" >> $GITHUB_OUTPUT
+            exit 0
+          }
+          VERSION=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "$RESPONSE" > /tmp/numba-pypi.json
+
+      - name: Check last known version
+        id: check-version
+        run: |
+          if [ ! -f /tmp/numba-pypi.json ]; then
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          LAST_KNOWN=$(python3 -c "import json; print(json.load(open('.github/last-known-versions.json'))['numba'])" 2>/dev/null || echo "none")
+          CURRENT="${{ steps.numba-info.outputs.version }}"
+          if [ "$LAST_KNOWN" = "$CURRENT" ]; then
+            echo "proceed=false" >> $GITHUB_OUTPUT
+          else
+            echo "proceed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Python classifiers from numba
+        id: numba-classifiers
+        run: |
+          python3 << 'PYEOF'
+          import json, os
+
+          with open('/tmp/numba-pypi.json') as f:
+              data = json.load(f)
+
+          classifiers = data['info']['classifiers']
+          versions = sorted(set(
+              c.split(' :: ')[-1] for c in classifiers
+              if c.startswith('Programming Language :: Python :: 3.') and c.count('.') == 2
+          ), key=lambda v: tuple(int(x) for x in v.split('.')))
+
+          min_ver = versions[0]
+          matrix = json.dumps({"python": versions})
+          classifiers_json = json.dumps(versions)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"matrix_json={matrix}\n")
+              out.write(f"classifiers_json={classifiers_json}\n")
+              out.write(f"min={min_ver}\n")
+
+          with open('/tmp/numba-classifiers.json', 'w') as f:
+              json.dump({"versions": versions, "min": min_ver}, f)
+          PYEOF
+
+      - name: Compare classifiers
+        id: compare-classifiers
+        run: |
+          python3 << 'PYEOF'
+          import json, os, re
+
+          if not os.path.exists('/tmp/numba-classifiers.json'):
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+                  out.write("publish=false\n")
+              exit(0)
+
+          with open('/tmp/numba-classifiers.json') as f:
+              numba_data = json.load(f)
+          new_versions = numba_data['versions']
+
+          with open('pyproject.toml') as f:
+              content = f.read()
+
+          old_versions = sorted(set(
+              f"3.{v}" for v in re.findall(r'Programming Language :: Python :: 3\.(\d+)', content)
+          ), key=lambda x: tuple(int(i) for i in x.split('.')))
+
+          publish = "true" if old_versions != new_versions else "false"
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"publish={publish}\n")
+          PYEOF
+
+  test:
+    needs: detect
+    if: needs.detect.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix_json) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U numba
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Build package
+        run: python -m build --sdist --wheel --outdir dist/ .
+
+  finalize:
+    needs: [detect, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Determine action
+        id: decide
+        run: |
+          DETECT_RESULT="${{ needs.detect.result }}"
+          PROCEED="${{ needs.detect.outputs.proceed }}"
+          TEST_RESULT="${{ needs.test.result }}"
+          PUBLISH="${{ needs.detect.outputs.publish }}"
+
+          if [ "$DETECT_RESULT" != "success" ] || [ "$PROCEED" != "true" ]; then
+            echo "action=skip" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ "$TEST_RESULT" = "success" ]; then
+            if [ "$PUBLISH" = "true" ]; then
+              echo "action=publish" >> $GITHUB_OUTPUT
+            else
+              echo "action=update_only" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "action=notify" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update last-known-versions.json
+        if: steps.decide.outputs.action != 'skip'
+        run: |
+          python3 -c "
+          import json
+          v = '${{ needs.detect.outputs.numba_version }}'
+          with open('.github/last-known-versions.json') as f:
+              data = json.load(f)
+          data['numba'] = v
+          with open('.github/last-known-versions.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          "
+
+      - name: Update pyproject.toml classifiers
+        if: steps.decide.outputs.action == 'publish'
+        env:
+          CLASSIFIERS: ${{ needs.detect.outputs.classifiers_json }}
+          PYTHON_MIN: ${{ needs.detect.outputs.requires_python_min }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, re
+
+          new_versions = json.loads(os.environ['CLASSIFIERS'])
+          new_min = os.environ['PYTHON_MIN']
+
+          with open('pyproject.toml') as f:
+              content = f.read()
+
+          content = re.sub(
+              r'\s*"Programming Language :: Python :: 3\.\d+",?\n',
+              '',
+              content
+          )
+
+          classifiers_match = re.search(r'classifiers = \[(.*?)\]', content, re.DOTALL)
+          if classifiers_match:
+              section = classifiers_match.group(0)
+              lines = section.split('\n')
+              insert_at = next(i for i, line in enumerate(lines) if line.strip() == ']')
+              for ver in reversed(new_versions):
+                  lines.insert(insert_at, f'    "Programming Language :: Python :: {ver}",')
+              content = content.replace(section, '\n'.join(lines))
+
+          content = re.sub(
+              r'requires-python = ">= [\d.]+"',
+              f'requires-python = ">= {new_min}"',
+              content
+          )
+
+          with open('pyproject.toml', 'w') as f:
+              f.write(content)
+          PYEOF
+
+      - name: Commit and tag
+        if: steps.decide.outputs.action == 'publish'
+        run: |
+          git config user.name "numba-progress bot"
+          git config user.email "actions@github.com"
+          git add pyproject.toml .github/last-known-versions.json
+          git commit -m "Update Python version support for numba ${{ needs.detect.outputs.numba_version }}"
+
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          MAJOR=$(echo "$LATEST_TAG" | sed 's/^v//' | cut -d. -f1)
+          MINOR=$(echo "$LATEST_TAG" | cut -d. -f2)
+          PATCH=$(echo "$LATEST_TAG" | cut -d. -f3)
+          NEW_TAG="v$MAJOR.$MINOR.$((PATCH + 1))"
+          git tag $NEW_TAG
+
+      - name: Build and publish to PyPI
+        if: steps.decide.outputs.action == 'publish'
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+          python -m build --sdist --wheel --outdir dist/ .
+          twine upload dist/*.tar.gz
+          twine upload dist/*.whl
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git push origin HEAD --tags
+
+      - name: Commit version file only
+        if: steps.decide.outputs.action == 'update_only'
+        run: |
+          git config user.name "numba-progress bot"
+          git config user.email "actions@github.com"
+          git add .github/last-known-versions.json
+          git commit -m "Update last known numba version to ${{ needs.detect.outputs.numba_version }}" || echo "Nothing to commit"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git push origin HEAD
+
+      - name: Create issue for test failure
+        if: steps.decide.outputs.action == 'notify'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Test failure with numba ${{ needs.detect.outputs.numba_version }}`,
+              body: [
+                `## Automated test failure report`,
+                ``,
+                `**numba version**: ${{ needs.detect.outputs.numba_version }}`,
+                `**Workflow run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+                ``,
+                `The test suite failed when testing against numba \`${{ needs.detect.outputs.numba_version }}\`.`,
+                `Please investigate the issue.`,
+                ``,
+                `*This issue was automatically created by the check-numba-release workflow.*`
+              ].join('\n')
+            })
+
+      - name: Commit version file on failure
+        if: steps.decide.outputs.action == 'notify'
+        run: |
+          git config user.name "numba-progress bot"
+          git config user.email "actions@github.com"
+          git add .github/last-known-versions.json
+          git commit -m "Update last known numba version to ${{ needs.detect.outputs.numba_version }}" || echo "Nothing to commit"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git push origin HEAD
