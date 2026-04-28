@@ -9,11 +9,10 @@ authors = [
 ]
 description = 'A tqdm-compatible progress bar implementation for numba functions'
 readme = "README.md"
-requires-python = ">= 3.9"
+requires-python = ">= 3.10"
 keywords = []
 license = {text = "MIT"}
 classifiers = [
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
